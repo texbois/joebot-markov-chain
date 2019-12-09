@@ -1,8 +1,9 @@
 [package]
-name = "joebot-markovify"
+name = "joebot-markov-chain"
 version = "0.1.0"
 authors = ["texbois"]
 edition = "2018"
 
 [dependencies]
-pyo3 = "0.8.0"
+vkopt-message-parser = "0.1.0"
+indexmap = "1.3.0"
