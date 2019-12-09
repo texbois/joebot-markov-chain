@@ -1,143 +1,103 @@
-use chrono::NaiveDateTime;
-use indexmap::set::IndexSet;
-use std::collections::HashMap;
-use std::convert::TryInto;
-use vkopt_message_parser::reader::{fold_html, EventResult, MessageEvent};
+pub mod chain;
 
-const NGRAM_CNT: usize = 2; // Use a bigram markov chain model
+use chain::{ChainEdge, ChainPrefix, MarkovChain};
+use rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng};
 
-type ChainPrefix = [u32; NGRAM_CNT]; // indexes into MarkovChain.words
+const MAX_TRIES: usize = 20;
 
-#[derive(Debug)]
-struct ChainEdge {
-    author_idx: u32,
-    timestamp: i64,
-    suffix_word_idx: u32,
-}
+pub fn generate<'a>(author_name: &'a str, chain: &MarkovChain, min_words: usize) -> String {
+    let author_idx = chain
+        .authors
+        .iter()
+        .enumerate()
+        .find_map(|(i, a)| {
+            if a.short_name == author_name {
+                Some(i)
+            } else {
+                None
+            }
+        })
+        .unwrap() as u32;
 
-#[derive(Default, Debug, PartialEq, Eq, Hash)]
-struct MessageAuthor {
-    full_name: String,
-    short_name: String,
-}
-
-#[derive(Default, Debug)]
-struct MarkovChain {
-    words: IndexSet<String>,
-    authors: IndexSet<MessageAuthor>,
-    nodes: HashMap<ChainPrefix, Vec<ChainEdge>>,
-}
-
-#[derive(Default)]
-struct ExtractedMessage {
-    author: MessageAuthor,
-    timestamp: i64,
-    body: String,
-}
-
-impl MarkovChain {
-    pub fn build_from_message_dump(input_file: &str) -> Self {
-        let mut chain: Self = Default::default();
-        let _ = fold_html(
-            input_file,
-            Default::default(),
-            |mut msg: ExtractedMessage, event| match event {
-                MessageEvent::FullNameExtracted(full_name) => {
-                    msg.author.full_name.push_str(full_name);
-                    EventResult::Consumed(msg)
-                }
-                MessageEvent::ShortNameExtracted(short_name) => {
-                    msg.author.short_name.push_str(short_name);
-                    EventResult::Consumed(msg)
-                }
-                MessageEvent::DateExtracted(date) => {
-                    msg.timestamp = NaiveDateTime::parse_from_str(date, "%Y.%m.%d %H:%M:%S")
-                        .unwrap()
-                        .timestamp_nanos();
-                    EventResult::Consumed(msg)
-                }
-                MessageEvent::BodyExtracted(body) => {
-                    msg.body = body;
-                    append_message(&mut chain, msg);
-                    EventResult::Consumed(Default::default())
-                }
-                _ => EventResult::Consumed(msg),
-            },
-        )
-        .unwrap();
-        chain
-    }
-}
-
-fn append_message(chain: &mut MarkovChain, message: ExtractedMessage) {
-    let author_idx = chain.authors.insert_full(message.author).0 as u32;
-    let word_indexes = message
-        .body
-        .split(&[' ', '\n'][..])
-        .filter(|word| !word.is_empty())
-        .map(|word| chain.words.insert_full(word.to_owned()).0 as u32)
+    let author_edges = chain
+        .nodes
+        .iter()
+        .flat_map(|(prefixes, edges)| {
+            edges
+                .iter()
+                .filter(|e| e.author_idx == author_idx)
+                .map(|e| (prefixes.clone(), e.clone()))
+                .collect::<Vec<_>>()
+        })
         .collect::<Vec<_>>();
 
-    for ngram in word_indexes.windows(NGRAM_CNT + 1) {
-        let (prefix_words, suffix) = ngram.split_at(NGRAM_CNT);
-        let prefix: ChainPrefix = prefix_words.try_into().unwrap();
-        let node = chain.nodes.entry(prefix).or_insert(Vec::new());
-        node.push(ChainEdge {
-            author_idx,
-            timestamp: message.timestamp,
-            suffix_word_idx: suffix[0],
-        });
+    let mut rng = SmallRng::from_entropy();
+    generate_sequence(&mut rng, &author_edges, min_words)
+        .into_iter()
+        .filter_map(|word_idx| chain.words.get_index(word_idx as usize).map(|w| w.as_str()))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn generate_sequence(
+    rng: &mut SmallRng,
+    edges: &Vec<(ChainPrefix, ChainEdge)>,
+    min_words: usize,
+) -> Vec<u32> {
+    fn advance_sequence(
+        current_edges: &Vec<(ChainPrefix, ChainEdge)>,
+        all_edges: &Vec<(ChainPrefix, ChainEdge)>,
+        rng: &mut SmallRng,
+        generated: &mut Vec<u32>,
+        min_words: usize,
+    ) {
+        let (prefixes, edge) = current_edges.choose(rng).unwrap();
+        for word in prefixes.iter() {
+            generated.push(*word);
+        }
+        generated.push(edge.suffix_word_idx);
+
+        if generated.len() < min_words {
+            let next_edges = all_edges
+                .iter()
+                .filter(|(p, _)| p.contains(&edge.suffix_word_idx))
+                .cloned()
+                .collect::<Vec<_>>();
+
+            if !next_edges.is_empty() {
+                advance_sequence(&next_edges, all_edges, rng, generated, min_words);
+            }
+        }
+    };
+
+    let mut tries = 0;
+    let mut generated: Vec<u32> = Vec::with_capacity(min_words as usize);
+    while generated.len() < min_words && tries < MAX_TRIES {
+        generated.clear();
+        advance_sequence(edges, edges, rng, &mut generated, min_words);
+        tries += 1;
     }
+    generated
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::NaiveDate;
+    use chain::MessageAuthor;
 
     #[test]
-    fn test_authors() {
-        let chain = MarkovChain::build_from_message_dump("tests/fixtures/messages.html");
-        assert_eq!(
-            chain.authors.get_index(0),
-            Some(&MessageAuthor {
-                full_name: "Sota Sota".into(),
-                short_name: "sota".into()
-            })
-        );
-        assert_eq!(
-            chain.authors.get_index(1),
-            Some(&MessageAuthor {
-                full_name: "Denko Denko".into(),
-                short_name: "denko".into()
-            })
-        );
-        println!("{:#?}", chain);
-    }
+    fn test_determined_generation() {
+        let mut chain: MarkovChain = Default::default();
+        chain.words.insert("депрессия".into());
+        chain.words.insert("с".into());
+        chain.words.insert("собаками".into());
 
-    #[test]
-    fn test_word_nodes() {
-        let chain = MarkovChain::build_from_message_dump("tests/fixtures/messages.html");
-        assert_eq!(chain.words.get_index(0), Some(&"Привет".into()));
-        assert_eq!(chain.words.get_index(1), Some(&"Denko".into()));
-        assert_eq!(chain.words.get_index(2), Some(&"Пью".into()));
-        let edges = &chain.nodes[&[0, 1]];
-        assert_eq!(edges[0].author_idx, 0);
-        assert_eq!(
-            edges[0].timestamp,
-            NaiveDate::from_ymd(2018, 1, 21)
-                .and_hms(11, 5, 13)
-                .timestamp_nanos()
-        );
-        assert_eq!(edges[0].suffix_word_idx, 2);
-    }
+        chain.authors.insert(MessageAuthor { short_name: "дана".into(), full_name: "".into() });
+        chain.authors.insert(MessageAuthor { short_name: "джилл".into(), full_name: "".into() });
 
-    #[test]
-    fn test_no_empty_words() {
-        let chain = MarkovChain::build_from_message_dump("tests/fixtures/messages.html");
-        let enumerated_words = chain.words.iter().enumerate();
-        let empty_words =
-            enumerated_words.filter_map(|(i, w)| if w.is_empty() { Some(i) } else { None });
-        assert_eq!(empty_words.collect::<Vec<_>>(), vec![0usize; 0]);
+        chain.nodes.insert([0, 1], vec![ChainEdge { author_idx: 0, suffix_word_idx: 2, timestamp: 0 }]);
+
+        let generated = generate("дана", &chain, 3);
+        assert_eq!(generated, "депрессия с собаками");
     }
 }
