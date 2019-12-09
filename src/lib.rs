@@ -1,3 +1,4 @@
+use chrono::NaiveDateTime;
 use indexmap::set::IndexSet;
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -10,6 +11,7 @@ type ChainPrefix = [u32; NGRAM_CNT]; // indexes into MarkovChain.words
 #[derive(Debug)]
 struct ChainEdge {
     author_idx: u32,
+    timestamp: i64,
     suffix_word_idx: u32,
 }
 
@@ -29,7 +31,7 @@ struct MarkovChain {
 #[derive(Default)]
 struct ExtractedMessage {
     author: MessageAuthor,
-    date: String,
+    timestamp: i64,
     body: String,
 }
 
@@ -49,7 +51,9 @@ impl MarkovChain {
                     EventResult::Consumed(msg)
                 }
                 MessageEvent::DateExtracted(date) => {
-                    msg.date.push_str(date);
+                    msg.timestamp = NaiveDateTime::parse_from_str(date, "%Y.%m.%d %H:%M:%S")
+                        .unwrap()
+                        .timestamp_nanos();
                     EventResult::Consumed(msg)
                 }
                 MessageEvent::BodyExtracted(body) => {
@@ -80,6 +84,7 @@ fn append_message(chain: &mut MarkovChain, message: ExtractedMessage) {
         let node = chain.nodes.entry(prefix).or_insert(Vec::new());
         node.push(ChainEdge {
             author_idx,
+            timestamp: message.timestamp,
             suffix_word_idx: suffix[0],
         });
     }
@@ -88,6 +93,7 @@ fn append_message(chain: &mut MarkovChain, message: ExtractedMessage) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::NaiveDate;
 
     #[test]
     fn test_authors() {
@@ -117,6 +123,12 @@ mod tests {
         assert_eq!(chain.words.get_index(2), Some(&"Пью".into()));
         let edges = &chain.nodes[&[0, 1]];
         assert_eq!(edges[0].author_idx, 0);
+        assert_eq!(
+            edges[0].timestamp,
+            NaiveDate::from_ymd(2018, 1, 21)
+                .and_hms(11, 5, 13)
+                .timestamp_nanos()
+        );
         assert_eq!(edges[0].suffix_word_idx, 2);
     }
 
@@ -126,6 +138,6 @@ mod tests {
         let enumerated_words = chain.words.iter().enumerate();
         let empty_words =
             enumerated_words.filter_map(|(i, w)| if w.is_empty() { Some(i) } else { None });
-        assert_eq!(vec![0usize; 0], empty_words.collect::<Vec<_>>());
+        assert_eq!(empty_words.collect::<Vec<_>>(), vec![0usize; 0]);
     }
 }
