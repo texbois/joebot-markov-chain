@@ -70,6 +70,7 @@ fn append_message(chain: &mut MarkovChain, message: ExtractedMessage) {
     let word_indexes = message
         .body
         .split(&[' ', '\n'][..])
+        .filter(|word| !word.is_empty())
         .map(|word| chain.words.insert_full(word.to_owned()).0 as u32)
         .collect::<Vec<_>>();
 
@@ -109,10 +110,14 @@ mod tests {
     }
 
     #[test]
-    fn test_words_order() {
+    fn test_word_nodes() {
         let chain = MarkovChain::build_from_message_dump("tests/fixtures/messages.html");
         assert_eq!(chain.words.get_index(0), Some(&"Привет".into()));
         assert_eq!(chain.words.get_index(1), Some(&"Denko".into()));
+        assert_eq!(chain.words.get_index(2), Some(&"Пью".into()));
+        let edges = &chain.nodes[&[0, 1]];
+        assert_eq!(edges[0].author_idx, 0);
+        assert_eq!(edges[0].suffix_word_idx, 2);
     }
 
     #[test]
@@ -121,7 +126,6 @@ mod tests {
         let enumerated_words = chain.words.iter().enumerate();
         let empty_words =
             enumerated_words.filter_map(|(i, w)| if w.is_empty() { Some(i) } else { None });
-
         assert_eq!(vec![0usize; 0], empty_words.collect::<Vec<_>>());
     }
 }
