@@ -1,91 +1,122 @@
-use chrono::NaiveDateTime;
+use chrono::{Datelike, NaiveDateTime};
 use indexmap::set::IndexSet;
-use std::collections::HashMap;
 use std::convert::TryInto;
+use std::iter::FromIterator;
 use vkopt_message_parser::reader::{fold_html, EventResult, MessageEvent};
 
 const NGRAM_CNT: usize = 2; // Use a bigram markov chain model
 
 pub type ChainPrefix = [u32; NGRAM_CNT]; // indexes into MarkovChain.words
 
-#[derive(Debug, Clone)]
-pub struct ChainEdge {
-    pub author_idx: u32,
-    pub timestamp: i64,
-    pub suffix_word_idx: u32,
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
+pub struct Datestamp {
+    year: i16,
+    day: u16,
 }
 
-#[derive(Default, Debug, PartialEq, Eq, Hash)]
-pub struct MessageAuthor {
-    pub full_name: String,
-    pub short_name: String,
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChainEntry {
+    pub prefix: ChainPrefix,
+    pub suffix_word_idx: u32,
+    pub datestamp: Datestamp,
+}
+
+#[derive(Default, Debug)]
+pub struct TextSource {
+    pub names: IndexSet<String>,
+    pub entries: Vec<ChainEntry>,
 }
 
 #[derive(Default, Debug)]
 pub struct MarkovChain {
     pub words: IndexSet<String>,
-    pub authors: IndexSet<MessageAuthor>,
-    pub nodes: HashMap<ChainPrefix, Vec<ChainEdge>>,
+    pub sources: Vec<TextSource>,
 }
 
 #[derive(Default)]
 struct ExtractedMessage {
-    author: MessageAuthor,
-    timestamp: i64,
+    names: Vec<String>,
+    datestamp: Datestamp,
     body: String,
 }
 
 impl MarkovChain {
     pub fn build_from_message_dump(input_file: &str) -> Self {
         let mut chain: Self = Default::default();
-        let _ = fold_html(
+        let last_msg = fold_html(
             input_file,
             Default::default(),
             |mut msg: ExtractedMessage, event| match event {
+                MessageEvent::Start(0) => {
+                    if !msg.body.is_empty() {
+                        append_message(&mut chain, msg);
+                    }
+                    EventResult::Consumed(Default::default())
+                }
                 MessageEvent::FullNameExtracted(full_name) => {
-                    msg.author.full_name.push_str(full_name);
+                    msg.names.push(full_name.to_owned());
                     EventResult::Consumed(msg)
                 }
                 MessageEvent::ShortNameExtracted(short_name) => {
-                    msg.author.short_name.push_str(short_name);
+                    msg.names.push(short_name.to_owned());
                     EventResult::Consumed(msg)
                 }
                 MessageEvent::DateExtracted(date) => {
-                    msg.timestamp = NaiveDateTime::parse_from_str(date, "%Y.%m.%d %H:%M:%S")
-                        .unwrap()
-                        .timestamp_nanos();
+                    let timestamp =
+                        NaiveDateTime::parse_from_str(date, "%Y.%m.%d %H:%M:%S").unwrap();
+                    msg.datestamp = Datestamp {
+                        year: timestamp.year() as i16,
+                        day: timestamp.ordinal() as u16,
+                    };
                     EventResult::Consumed(msg)
                 }
-                MessageEvent::BodyExtracted(body) => {
-                    msg.body = body;
-                    append_message(&mut chain, msg);
-                    EventResult::Consumed(Default::default())
+                MessageEvent::BodyPartExtracted(body) => {
+                    msg.body.push_str(body);
+                    EventResult::Consumed(msg)
                 }
                 _ => EventResult::Consumed(msg),
             },
         )
         .unwrap();
+        if !last_msg.body.is_empty() {
+            append_message(&mut chain, last_msg);
+        }
         chain
     }
 }
 
 fn append_message(chain: &mut MarkovChain, message: ExtractedMessage) {
-    let author_idx = chain.authors.insert_full(message.author).0 as u32;
+    let source = match chain
+        .sources
+        .iter_mut()
+        .find(|s| s.names.iter().any(|name| message.names.contains(name)))
+    {
+        Some(s) => s,
+        _ => {
+            let new_source = TextSource {
+                names: IndexSet::from_iter(message.names.into_iter()),
+                ..Default::default()
+            };
+            chain.sources.push(new_source);
+            chain.sources.last_mut().unwrap()
+        }
+    };
+    let words = &mut chain.words;
+
     let word_indexes = message
         .body
         .split(&[' ', '\n'][..])
         .filter(|word| !word.is_empty())
-        .map(|word| chain.words.insert_full(word.to_owned()).0 as u32)
+        .map(|word| words.insert_full(word.to_owned()).0 as u32)
         .collect::<Vec<_>>();
 
     for ngram in word_indexes.windows(NGRAM_CNT + 1) {
         let (prefix_words, suffix) = ngram.split_at(NGRAM_CNT);
         let prefix: ChainPrefix = prefix_words.try_into().unwrap();
-        let node = chain.nodes.entry(prefix).or_insert(Vec::new());
-        node.push(ChainEdge {
-            author_idx,
-            timestamp: message.timestamp,
+        source.entries.push(ChainEntry {
+            prefix,
             suffix_word_idx: suffix[0],
+            datestamp: message.datestamp,
         });
     }
 }
@@ -93,24 +124,21 @@ fn append_message(chain: &mut MarkovChain, message: ExtractedMessage) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::NaiveDate;
 
     #[test]
     fn test_authors() {
         let chain = MarkovChain::build_from_message_dump("tests/fixtures/messages.html");
         assert_eq!(
-            chain.authors.get_index(0),
-            Some(&MessageAuthor {
-                full_name: "Sota Sota".into(),
-                short_name: "sota".into()
-            })
+            chain.sources[0].names,
+            vec!["Sota Sota".into(), "sota".into()]
+                .into_iter()
+                .collect::<IndexSet<_>>()
         );
         assert_eq!(
-            chain.authors.get_index(1),
-            Some(&MessageAuthor {
-                full_name: "Denko Denko".into(),
-                short_name: "denko".into()
-            })
+            chain.sources[1].names,
+            vec!["Denko Denko".into(), "denko".into()]
+                .into_iter()
+                .collect::<IndexSet<_>>()
         );
         println!("{:#?}", chain);
     }
@@ -121,15 +149,18 @@ mod tests {
         assert_eq!(chain.words.get_index(0), Some(&"Привет".into()));
         assert_eq!(chain.words.get_index(1), Some(&"Denko".into()));
         assert_eq!(chain.words.get_index(2), Some(&"Пью".into()));
-        let edges = &chain.nodes[&[0, 1]];
-        assert_eq!(edges[0].author_idx, 0);
+
         assert_eq!(
-            edges[0].timestamp,
-            NaiveDate::from_ymd(2018, 1, 21)
-                .and_hms(11, 5, 13)
-                .timestamp_nanos()
+            chain.sources[0].entries[0],
+            ChainEntry {
+                prefix: [0, 1],
+                suffix_word_idx: 2,
+                datestamp: Datestamp {
+                    year: 2018,
+                    day: 21
+                }
+            }
         );
-        assert_eq!(edges[0].suffix_word_idx, 2);
     }
 
     #[test]
