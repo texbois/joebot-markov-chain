@@ -10,8 +10,8 @@ pub type ChainPrefix = [u32; NGRAM_CNT]; // indexes into MarkovChain.words
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub struct Datestamp {
-    year: i16,
-    day: u16,
+    pub year: i16,
+    pub day: u16,
 }
 
 #[derive(Debug, Clone, PartialEq)]
