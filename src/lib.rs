@@ -48,10 +48,7 @@ fn generate_sequence(
             }
             let next_edges = edges
                 .iter()
-                .flat_map(|&es| {
-                    es.iter()
-                        .filter(|e| e.prefix.contains(&edge.suffix_word_idx))
-                })
+                .flat_map(|&es| es.iter().filter(|e| e.prefix[0] == edge.suffix_word_idx))
                 .collect::<Vec<_>>();
             edge = match next_edges.choose(rng) {
                 Some(e) => e,
@@ -137,6 +134,16 @@ mod tests {
         });
 
         let generated = generate(&["джилл", "дана"], &chain, 6);
-        assert_eq!(generated, Some("сегодня у меня депрессия с собаками".into()));
+        assert_eq!(
+            generated,
+            Some("сегодня у меня депрессия с собаками".into())
+        );
+    }
+
+    #[test]
+    fn test_random_generation() {
+        let chain = MarkovChain::build_from_message_dump("tests/fixtures/messages.html");
+        let generated = generate(&["sota", "denko"], &chain, 4);
+        assert!(generated.is_some());
     }
 }
