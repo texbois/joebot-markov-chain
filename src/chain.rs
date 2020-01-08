@@ -1,33 +1,35 @@
 use chrono::{Datelike, NaiveDateTime};
 use indexmap::set::IndexSet;
+use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::iter::FromIterator;
+
 use vkopt_message_parser::reader::{fold_html, EventResult, MessageEvent};
 
 const NGRAM_CNT: usize = 2; // Use a bigram markov chain model
 
 pub type ChainPrefix = [u32; NGRAM_CNT]; // indexes into MarkovChain.words
 
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Datestamp {
     pub year: i16,
     pub day: u16,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChainEntry {
     pub prefix: ChainPrefix,
     pub suffix_word_idx: u32,
     pub datestamp: Datestamp,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub struct TextSource {
     pub names: IndexSet<String>,
     pub entries: Vec<ChainEntry>,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub struct MarkovChain {
     pub words: IndexSet<String>,
     pub sources: Vec<TextSource>,
