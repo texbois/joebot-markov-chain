@@ -142,7 +142,8 @@ mod tests {
 
     #[test]
     fn test_random_generation() {
-        let chain = MarkovChain::build_from_message_dump("tests/fixtures/messages.html");
+        let mut chain = MarkovChain::new();
+        chain.append_message_dump("tests/fixtures/messages.html");
         let generated = generate(&["sota", "denko"], &chain, 4);
         assert!(generated.is_some());
     }

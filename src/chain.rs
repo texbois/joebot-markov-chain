@@ -41,15 +41,18 @@ struct ExtractedMessage {
 }
 
 impl MarkovChain {
-    pub fn build_from_message_dump(input_file: &str) -> Self {
-        let mut chain: Self = Default::default();
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn append_message_dump(&mut self, input_file: &str) {
         let last_msg = fold_html(
             input_file,
             Default::default(),
             |mut msg: ExtractedMessage, event| match event {
                 MessageEvent::Start(0) => {
                     if !msg.body.is_empty() {
-                        append_message(&mut chain, msg);
+                        append_message(self, msg);
                     }
                     EventResult::Consumed(Default::default())
                 }
@@ -79,9 +82,8 @@ impl MarkovChain {
         )
         .unwrap();
         if !last_msg.body.is_empty() {
-            append_message(&mut chain, last_msg);
+            append_message(self, last_msg);
         }
-        chain
     }
 }
 
@@ -127,7 +129,8 @@ mod tests {
 
     #[test]
     fn test_authors() {
-        let chain = MarkovChain::build_from_message_dump("tests/fixtures/messages.html");
+        let mut chain = MarkovChain::new();
+        chain.append_message_dump("tests/fixtures/messages.html");
         assert_eq!(
             chain.sources[0].names,
             vec!["Sota Sota".into(), "sota".into()]
@@ -145,7 +148,8 @@ mod tests {
 
     #[test]
     fn test_word_nodes() {
-        let chain = MarkovChain::build_from_message_dump("tests/fixtures/messages.html");
+        let mut chain = MarkovChain::new();
+        chain.append_message_dump("tests/fixtures/messages.html");
         assert_eq!(chain.words.get_index(0), Some(&"Привет".into()));
         assert_eq!(chain.words.get_index(1), Some(&"Denko".into()));
         assert_eq!(chain.words.get_index(2), Some(&"Пью".into()));
@@ -165,7 +169,8 @@ mod tests {
 
     #[test]
     fn test_no_empty_words() {
-        let chain = MarkovChain::build_from_message_dump("tests/fixtures/messages.html");
+        let mut chain = MarkovChain::new();
+        chain.append_message_dump("tests/fixtures/messages.html");
         let enumerated_words = chain.words.iter().enumerate();
         let empty_words =
             enumerated_words.filter_map(|(i, w)| if w.is_empty() { Some(i) } else { None });
