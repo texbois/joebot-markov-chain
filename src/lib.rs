@@ -87,8 +87,7 @@ fn sample_2d<'e, T>(rng: &mut SmallRng, slices: &'e [&Vec<T>]) -> &'e T {
 mod tests {
     use super::*;
     use chain::{ChainEntry, Datestamp, TextSource};
-    use indexmap::IndexSet;
-    use std::iter::FromIterator;
+    use indexmap::indexset;
 
     #[test]
     fn test_determined_generation() {
@@ -101,7 +100,7 @@ mod tests {
         chain.words.insert("собаками".into());
 
         chain.sources.push(TextSource {
-            names: IndexSet::from_iter(vec!["дана".into()]),
+            names: indexset!["дана".into()],
             entries: vec![
                 ChainEntry {
                     prefix: [0, 1],
@@ -122,7 +121,7 @@ mod tests {
             ],
         });
         chain.sources.push(TextSource {
-            names: IndexSet::from_iter(vec!["джилл".into()]),
+            names: indexset!["джилл".into()],
             entries: vec![ChainEntry {
                 prefix: [2, 3],
                 suffix_word_idx: 4,

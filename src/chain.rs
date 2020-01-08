@@ -1,5 +1,5 @@
 use chrono::{Datelike, NaiveDateTime};
-use indexmap::set::IndexSet;
+use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::iter::FromIterator;
@@ -151,6 +151,7 @@ fn push_text_entries(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use indexmap::indexset;
 
     #[test]
     fn test_authors() {
@@ -158,17 +159,12 @@ mod tests {
         chain.append_message_dump("tests/fixtures/messages.html");
         assert_eq!(
             chain.sources[0].names,
-            vec!["Sota Sota".into(), "sota".into()]
-                .into_iter()
-                .collect::<IndexSet<_>>()
+            indexset!["Sota Sota".into(), "sota".into()]
         );
         assert_eq!(
             chain.sources[1].names,
-            vec!["Denko Denko".into(), "denko".into()]
-                .into_iter()
-                .collect::<IndexSet<_>>()
+            indexset!["Denko Denko".into(), "denko".into()]
         );
-        println!("{:#?}", chain);
     }
 
     #[test]
@@ -212,25 +208,20 @@ mod tests {
         );
         assert_eq!(
             chain.words,
-            vec![
-                "useless",
-                "unreliable",
-                "heavily",
-                "distorted",
-                "probe",
-                "and",
-                "flashing",
-                "red"
+            indexset![
+                "useless".into(),
+                "unreliable".into(),
+                "heavily".into(),
+                "distorted".into(),
+                "probe".into(),
+                "and".into(),
+                "flashing".into(),
+                "red".into()
             ]
-            .into_iter()
-            .map(|s| s.to_owned())
-            .collect::<IndexSet<_>>()
         );
         assert_eq!(
             chain.sources[0].names,
-            vec!["angus".into(), "sol onset".into()]
-                .into_iter()
-                .collect::<IndexSet<_>>()
+            indexset!["angus".into(), "sol onset".into()]
         );
         assert_eq!(
             chain.sources[0].entries[0],
