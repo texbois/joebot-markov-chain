@@ -45,6 +45,17 @@ impl MarkovChain {
         Default::default()
     }
 
+    pub fn append_text(
+        &mut self,
+        input_file: &str,
+        source_names: Vec<String>,
+        datestamp: Datestamp,
+    ) {
+        let text = std::fs::read_to_string(input_file).unwrap();
+        let source = source_by_names(&mut self.sources, source_names);
+        push_text_entries(&text, datestamp, &mut source.entries, &mut self.words);
+    }
+
     pub fn append_message_dump(&mut self, input_file: &str) {
         let last_msg = fold_html(
             input_file,
@@ -87,26 +98,38 @@ impl MarkovChain {
     }
 }
 
-fn append_message(chain: &mut MarkovChain, message: ExtractedMessage) {
-    let source = match chain
-        .sources
-        .iter_mut()
-        .find(|s| s.names.iter().any(|name| message.names.contains(name)))
-    {
-        Some(s) => s,
-        _ => {
+fn source_by_names(sources: &mut Vec<TextSource>, names: Vec<String>) -> &mut TextSource {
+    let idx = sources
+        .iter()
+        .position(|s| names.iter().any(|n| s.names.contains(n)))
+        .unwrap_or_else(|| {
             let new_source = TextSource {
-                names: IndexSet::from_iter(message.names.into_iter()),
+                names: IndexSet::from_iter(names.into_iter()),
                 ..Default::default()
             };
-            chain.sources.push(new_source);
-            chain.sources.last_mut().unwrap()
-        }
-    };
-    let words = &mut chain.words;
+            sources.push(new_source);
+            sources.len() - 1
+        });
+    sources.get_mut(idx).unwrap()
+}
 
-    let word_indexes = message
-        .body
+fn append_message(chain: &mut MarkovChain, message: ExtractedMessage) {
+    let source = source_by_names(&mut chain.sources, message.names);
+    push_text_entries(
+        &message.body,
+        message.datestamp,
+        &mut source.entries,
+        &mut chain.words,
+    );
+}
+
+fn push_text_entries(
+    text: &str,
+    datestamp: Datestamp,
+    entries: &mut Vec<ChainEntry>,
+    words: &mut IndexSet<String>,
+) {
+    let word_indexes = text
         .split(&[' ', '\n'][..])
         .filter(|word| !word.is_empty())
         .map(|word| words.insert_full(word.to_owned()).0 as u32)
@@ -115,10 +138,10 @@ fn append_message(chain: &mut MarkovChain, message: ExtractedMessage) {
     for ngram in word_indexes.windows(NGRAM_CNT + 1) {
         let (prefix_words, suffix) = ngram.split_at(NGRAM_CNT);
         let prefix: ChainPrefix = prefix_words.try_into().unwrap();
-        source.entries.push(ChainEntry {
+        entries.push(ChainEntry {
             prefix,
             suffix_word_idx: suffix[0],
-            datestamp: message.datestamp,
+            datestamp,
         });
     }
 }
@@ -175,5 +198,45 @@ mod tests {
         let empty_words =
             enumerated_words.filter_map(|(i, w)| if w.is_empty() { Some(i) } else { None });
         assert_eq!(empty_words.collect::<Vec<_>>(), vec![0usize; 0]);
+    }
+
+    #[test]
+    fn test_text() {
+        let mut chain = MarkovChain::new();
+        chain.append_text(
+            "tests/fixtures/text",
+            vec!["angus".into(), "sol onset".into()],
+            Datestamp { year: 0, day: 0 },
+        );
+        assert_eq!(
+            chain.words,
+            vec![
+                "useless",
+                "unreliable",
+                "heavily",
+                "distorted",
+                "probe",
+                "and",
+                "flashing",
+                "red"
+            ]
+            .into_iter()
+            .map(|s| s.to_owned())
+            .collect::<IndexSet<_>>()
+        );
+        assert_eq!(
+            chain.sources[0].names,
+            vec!["angus".into(), "sol onset".into()]
+                .into_iter()
+                .collect::<IndexSet<_>>()
+        );
+        assert_eq!(
+            chain.sources[0].entries[0],
+            ChainEntry {
+                prefix: [0, 1],
+                suffix_word_idx: 2,
+                datestamp: Datestamp { year: 0, day: 0 }
+            }
+        );
     }
 }
