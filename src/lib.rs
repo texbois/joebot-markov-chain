@@ -11,7 +11,7 @@ pub const NGRAM_CNT: usize = 2; // Use a bigram markov chain model
 
 pub type ChainPrefix = [u32; NGRAM_CNT]; // indexes into MarkovChain.words
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct Datestamp {
     pub year: i16,
     pub day: u16,
