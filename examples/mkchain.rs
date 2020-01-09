@@ -1,4 +1,4 @@
-use joebot_markov_chain::chain::{Datestamp, MarkovChain};
+use joebot_markov_chain::{ChainAppend, Datestamp, MarkovChain};
 use serde_json;
 use std::fs::File;
 

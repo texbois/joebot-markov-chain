@@ -1,38 +1,15 @@
+use crate::{ChainEntry, ChainPrefix, Datestamp, MarkovChain, TextSource, NGRAM_CNT};
 use chrono::{Datelike, NaiveDateTime};
 use indexmap::IndexSet;
-use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::iter::FromIterator;
 
 use vkopt_message_parser::reader::{fold_html, EventResult, MessageEvent};
 
-const NGRAM_CNT: usize = 2; // Use a bigram markov chain model
+pub trait ChainAppend {
+    fn append_text(&mut self, input_file: &str, source_names: Vec<String>, datestamp: Datestamp);
 
-pub type ChainPrefix = [u32; NGRAM_CNT]; // indexes into MarkovChain.words
-
-#[derive(Default, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Datestamp {
-    pub year: i16,
-    pub day: u16,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ChainEntry {
-    pub prefix: ChainPrefix,
-    pub suffix_word_idx: u32,
-    pub datestamp: Datestamp,
-}
-
-#[derive(Default, Debug, Serialize, Deserialize)]
-pub struct TextSource {
-    pub names: IndexSet<String>,
-    pub entries: Vec<ChainEntry>,
-}
-
-#[derive(Default, Debug, Serialize, Deserialize)]
-pub struct MarkovChain {
-    pub words: IndexSet<String>,
-    pub sources: Vec<TextSource>,
+    fn append_message_dump(&mut self, input_file: &str);
 }
 
 #[derive(Default)]
@@ -42,23 +19,14 @@ struct ExtractedMessage {
     body: String,
 }
 
-impl MarkovChain {
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    pub fn append_text(
-        &mut self,
-        input_file: &str,
-        source_names: Vec<String>,
-        datestamp: Datestamp,
-    ) {
+impl ChainAppend for MarkovChain {
+    fn append_text(&mut self, input_file: &str, source_names: Vec<String>, datestamp: Datestamp) {
         let text = std::fs::read_to_string(input_file).unwrap();
         let source = source_by_names(&mut self.sources, source_names);
         push_text_entries(&text, datestamp, &mut source.entries, &mut self.words);
     }
 
-    pub fn append_message_dump(&mut self, input_file: &str) {
+    fn append_message_dump(&mut self, input_file: &str) {
         let last_msg = fold_html(
             input_file,
             Default::default(),
