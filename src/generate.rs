@@ -1,14 +1,24 @@
-use crate::{ChainEntry, MarkovChain};
-use rand::{rngs::SmallRng, seq::SliceRandom, Rng, SeedableRng};
+use crate::{ChainEntry, Datestamp, MarkovChain};
+use rand::{seq::SliceRandom, Rng};
 
 const MAX_TRIES: usize = 20;
 
 pub trait ChainGenerate {
-    fn generate(&self, source_names: &[&str], min_words: usize) -> Option<String>;
+    fn generate<R: Rng>(
+        &self,
+        rng: &mut R,
+        source_names: &[&str],
+        min_words: usize,
+    ) -> Option<String>;
 }
 
 impl ChainGenerate for MarkovChain {
-    fn generate(&self, source_names: &[&str], min_words: usize) -> Option<String> {
+    fn generate<R: Rng>(
+        &self,
+        rng: &mut R,
+        source_names: &[&str],
+        min_words: usize,
+    ) -> Option<String> {
         let edges = self
             .sources
             .iter()
@@ -20,8 +30,7 @@ impl ChainGenerate for MarkovChain {
             return None;
         }
 
-        let mut rng = SmallRng::from_entropy();
-        generate_sequence(&mut rng, &edges, min_words).map(|s| {
+        generate_sequence(rng, &edges, min_words).map(|s| {
             s.into_iter()
                 .filter_map(|word_idx| self.words.get_index(word_idx as usize).map(|w| w.as_str()))
                 .collect::<Vec<_>>()
@@ -30,8 +39,8 @@ impl ChainGenerate for MarkovChain {
     }
 }
 
-fn generate_sequence(
-    rng: &mut SmallRng,
+fn generate_sequence<R: Rng>(
+    rng: &mut R,
     edges: &[&Vec<ChainEntry>],
     min_words: usize,
 ) -> Option<Vec<u32>> {
@@ -64,7 +73,7 @@ fn generate_sequence(
     None
 }
 
-fn sample_2d<'e, T>(rng: &mut SmallRng, slices: &'e [&Vec<T>]) -> &'e T {
+fn sample_2d<'e, T, R: Rng>(rng: &mut R, slices: &'e [&Vec<T>]) -> &'e T {
     let lengths = slices.iter().map(|e| e.len());
     let total_len: usize = slices.iter().map(|e| e.len()).sum();
     let sampled_idx = if total_len <= (core::u32::MAX as usize) {
@@ -88,6 +97,7 @@ mod tests {
     use super::*;
     use crate::{ChainAppend, Datestamp, TextSource};
     use indexmap::indexset;
+    use rand::{rngs::SmallRng, SeedableRng};
 
     #[test]
     fn test_determined_generation() {
@@ -132,7 +142,8 @@ mod tests {
             }],
         });
 
-        let generated = chain.generate(&["джилл", "дана"], 6);
+        let mut rng = SmallRng::from_seed([1; 16]);
+        let generated = chain.generate(&mut rng, &["джилл", "дана"], 6);
         assert_eq!(
             generated,
             Some("сегодня у меня депрессия с собаками".into())
@@ -143,7 +154,8 @@ mod tests {
     fn test_random_generation() {
         let mut chain = MarkovChain::new();
         chain.append_message_dump("tests/fixtures/messages.html");
-        let generated = chain.generate(&["sota", "denko"], 4);
-        assert!(generated.is_some());
+        let mut rng = SmallRng::from_seed([1; 16]);
+        let generated = chain.generate(&mut rng, &["sota", "denko"], 4);
+        assert_eq!(generated, Some("тоже пью жасминовый чай?".into()));
     }
 }
