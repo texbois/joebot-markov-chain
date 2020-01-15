@@ -86,7 +86,7 @@ fn generate_sequence<R: Rng>(
             }
             let next_edges = edges
                 .iter()
-                .filter(|e| e.prefix[0] == edge.suffix_word_idx)
+                .filter(|e| e.prefix[0] == edge.suffix.word_idx())
                 .collect::<Vec<_>>();
             edge = match next_edges.choose(rng) {
                 Some(e) => e,
@@ -102,7 +102,7 @@ fn generate_sequence<R: Rng>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ChainAppend, Datestamp, TextSource};
+    use crate::{ChainAppend, ChainSuffix, Datestamp, TextSource};
     use indexmap::indexset;
     use rand::{rngs::SmallRng, SeedableRng};
 
@@ -121,7 +121,7 @@ mod tests {
             entries: vec![
                 ChainEntry {
                     prefix: [0, 1],
-                    suffix_word_idx: 2,
+                    suffix: ChainSuffix::nonterminal(2),
                     datestamp: Datestamp {
                         year: 2070,
                         day: 360,
@@ -129,7 +129,7 @@ mod tests {
                 },
                 ChainEntry {
                     prefix: [4, 5],
-                    suffix_word_idx: 6,
+                    suffix: ChainSuffix::terminal(6),
                     datestamp: Datestamp {
                         year: 2070,
                         day: 360,
@@ -141,7 +141,7 @@ mod tests {
             names: indexset!["джилл".into()],
             entries: vec![ChainEntry {
                 prefix: [2, 3],
-                suffix_word_idx: 4,
+                suffix: ChainSuffix::nonterminal(4),
                 datestamp: Datestamp {
                     year: 2070,
                     day: 360,

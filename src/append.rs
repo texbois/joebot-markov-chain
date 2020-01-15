@@ -1,4 +1,4 @@
-use crate::{ChainEntry, ChainPrefix, Datestamp, MarkovChain, TextSource, NGRAM_CNT};
+use crate::{ChainEntry, ChainSuffix, Datestamp, MarkovChain, TextSource, NGRAM_CNT};
 use chrono::{Datelike, NaiveDateTime};
 use indexmap::IndexSet;
 use std::convert::TryInto;
@@ -23,7 +23,7 @@ impl ChainAppend for MarkovChain {
     fn append_text(&mut self, input_file: &str, source_names: Vec<String>, datestamp: Datestamp) {
         let text = std::fs::read_to_string(input_file).unwrap();
         let source = source_by_names(&mut self.sources, source_names);
-        push_text_entries(&text, datestamp, &mut source.entries, &mut self.words);
+        push_text_entries(&text, datestamp, &mut source.entries, &mut self.words, true);
     }
 
     fn append_message_dump(&mut self, input_file: &str) {
@@ -90,6 +90,7 @@ fn append_message(chain: &mut MarkovChain, message: ExtractedMessage) {
         message.datestamp,
         &mut source.entries,
         &mut chain.words,
+        false,
     );
 }
 
@@ -98,6 +99,7 @@ fn push_text_entries(
     datestamp: Datestamp,
     entries: &mut Vec<ChainEntry>,
     words: &mut IndexSet<String>,
+    treat_period_as_terminal: bool,
 ) {
     let word_indexes = text
         .split(&[' ', '\n'][..])
@@ -105,12 +107,26 @@ fn push_text_entries(
         .map(|word| words.insert_full(word.to_owned()).0 as u32)
         .collect::<Vec<_>>();
 
+    if word_indexes.len() < NGRAM_CNT + 1 {
+        return;
+    }
+
+    let last_ngram = &word_indexes[word_indexes.len() - (NGRAM_CNT + 1)..word_indexes.len()];
+
     for ngram in word_indexes.windows(NGRAM_CNT + 1) {
         let (prefix_words, suffix) = ngram.split_at(NGRAM_CNT);
-        let prefix: ChainPrefix = prefix_words.try_into().unwrap();
+        let terminal = if treat_period_as_terminal {
+            words.get_index(suffix[0] as usize).unwrap().ends_with('.')
+        } else {
+            ngram == last_ngram
+        };
         entries.push(ChainEntry {
-            prefix,
-            suffix_word_idx: suffix[0],
+            prefix: prefix_words.try_into().unwrap(),
+            suffix: if terminal {
+                ChainSuffix::terminal(suffix[0])
+            } else {
+                ChainSuffix::nonterminal(suffix[0])
+            },
             datestamp,
         });
     }
@@ -147,12 +163,23 @@ mod tests {
             chain.sources[0].entries[0],
             ChainEntry {
                 prefix: [0, 1],
-                suffix_word_idx: 2,
+                suffix: ChainSuffix::nonterminal(2),
                 datestamp: Datestamp {
                     year: 2018,
                     day: 21
                 }
             }
+        );
+        assert_eq!(
+            chain.sources[0].entries.last(),
+            Some(&ChainEntry {
+                prefix: [3, 4],
+                suffix: ChainSuffix::terminal(5),
+                datestamp: Datestamp {
+                    year: 2018,
+                    day: 21
+                }
+            })
         );
     }
 
@@ -181,10 +208,9 @@ mod tests {
                 "unreliable".into(),
                 "heavily".into(),
                 "distorted".into(),
-                "probe".into(),
-                "and".into(),
+                "probe.".into(),
                 "flashing".into(),
-                "red".into()
+                "red.".into()
             ]
         );
         assert_eq!(
@@ -192,12 +218,34 @@ mod tests {
             indexset!["angus".into(), "sol onset".into()]
         );
         assert_eq!(
-            chain.sources[0].entries[0],
-            ChainEntry {
-                prefix: [0, 1],
-                suffix_word_idx: 2,
-                datestamp: Datestamp { year: 0, day: 0 }
-            }
+            chain.sources[0].entries,
+            vec![
+                ChainEntry {
+                    prefix: [0, 1],
+                    suffix: ChainSuffix::nonterminal(2),
+                    datestamp: Datestamp { year: 0, day: 0 }
+                },
+                ChainEntry {
+                    prefix: [1, 2],
+                    suffix: ChainSuffix::nonterminal(3),
+                    datestamp: Datestamp { year: 0, day: 0 }
+                },
+                ChainEntry {
+                    prefix: [2, 3],
+                    suffix: ChainSuffix::terminal(4),
+                    datestamp: Datestamp { year: 0, day: 0 }
+                },
+                ChainEntry {
+                    prefix: [3, 4],
+                    suffix: ChainSuffix::nonterminal(5),
+                    datestamp: Datestamp { year: 0, day: 0 }
+                },
+                ChainEntry {
+                    prefix: [4, 5],
+                    suffix: ChainSuffix::terminal(6),
+                    datestamp: Datestamp { year: 0, day: 0 }
+                }
+            ]
         );
     }
 }

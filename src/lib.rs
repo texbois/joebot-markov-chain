@@ -17,10 +17,43 @@ pub struct Datestamp {
     pub day: u16,
 }
 
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+pub struct ChainSuffix(u32);
+
+impl ChainSuffix {
+    const fn terminal(word_idx: u32) -> Self {
+        let word_idx_31 = word_idx & ((1u32 << 31) - 1);
+        Self(word_idx_31 | 1u32 << 31)
+    }
+
+    const fn nonterminal(word_idx: u32) -> Self {
+        let word_idx_31 = word_idx & ((1u32 << 31) - 1);
+        Self(word_idx_31)
+    }
+
+    const fn word_idx(&self) -> u32 {
+        self.0 & ((1u32 << 31) - 1)
+    }
+
+    const fn is_terminal(&self) -> bool {
+        (self.0 & (1u32 << 31)) > 0
+    }
+}
+
+impl std::fmt::Debug for ChainSuffix {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        if self.is_terminal() {
+            write!(f, "Terminal({})", self.word_idx())
+        } else {
+            write!(f, "NonTerminal({})", self.word_idx())
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChainEntry {
     pub prefix: ChainPrefix,
-    pub suffix_word_idx: u32,
+    pub suffix: ChainSuffix,
     pub datestamp: Datestamp,
 }
 
