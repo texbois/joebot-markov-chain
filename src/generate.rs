@@ -5,18 +5,18 @@ use rand::{seq::SliceRandom, Rng};
 const MAX_TRIES: usize = 20;
 
 pub trait ChainGenerate {
-    fn generate<R: Rng>(
+    fn generate<'a, R: Rng, I: IntoIterator<Item = &'a TextSource>>(
         &self,
         rng: &mut R,
-        sources: &[&TextSource],
+        sources: I,
         min_words: usize,
         max_words: usize,
     ) -> Option<String>;
 
-    fn generate_in_date_range<R: Rng>(
+    fn generate_in_date_range<'a, R: Rng, I: IntoIterator<Item = &'a TextSource>>(
         &self,
         rng: &mut R,
-        sources: &[&TextSource],
+        sources: I,
         date_range: (Datestamp, Datestamp),
         min_words: usize,
         max_words: usize,
@@ -24,14 +24,17 @@ pub trait ChainGenerate {
 }
 
 impl ChainGenerate for MarkovChain {
-    fn generate<R: Rng>(
+    fn generate<'a, R: Rng, I: IntoIterator<Item = &'a TextSource>>(
         &self,
         rng: &mut R,
-        sources: &[&TextSource],
+        sources: I,
         min_words: usize,
         max_words: usize,
     ) -> Option<String> {
-        let edges = sources.iter().flat_map(|s| &s.entries).collect::<Vec<_>>();
+        let edges = sources
+            .into_iter()
+            .flat_map(|s| &s.entries)
+            .collect::<Vec<_>>();
         if !edges.is_empty() {
             generate_sequence(rng, &edges, min_words, max_words)
                 .map(|s| seq_to_text(s, &self.words))
@@ -40,16 +43,16 @@ impl ChainGenerate for MarkovChain {
         }
     }
 
-    fn generate_in_date_range<R: Rng>(
+    fn generate_in_date_range<'a, R: Rng, I: IntoIterator<Item = &'a TextSource>>(
         &self,
         rng: &mut R,
-        sources: &[&TextSource],
+        sources: I,
         date_range: (Datestamp, Datestamp),
         min_words: usize,
         max_words: usize,
     ) -> Option<String> {
         let edges = sources
-            .iter()
+            .into_iter()
             .flat_map(|s| &s.entries)
             .filter(|e| e.datestamp >= date_range.0 && e.datestamp <= date_range.1)
             .collect::<Vec<_>>();
@@ -153,7 +156,7 @@ mod tests {
         });
 
         let mut rng = SmallRng::from_seed([1; 16]);
-        let generated = chain.generate(&mut rng, &chain.sources.iter().collect::<Vec<_>>(), 5, 6);
+        let generated = chain.generate(&mut rng, chain.sources.iter(), 5, 6);
         assert_eq!(
             generated,
             Some("сегодня у меня депрессия с собаками".into())
@@ -165,7 +168,7 @@ mod tests {
         let mut chain = MarkovChain::new();
         chain.append_message_dump("tests/fixtures/messages.html");
         let mut rng = SmallRng::from_seed([1; 16]);
-        let generated = chain.generate(&mut rng, &chain.sources.iter().collect::<Vec<_>>(), 3, 5);
+        let generated = chain.generate(&mut rng, chain.sources.iter(), 3, 5);
         assert_eq!(generated, Some("тоже пью жасминовый чай? 🤔🤔🤔".into()));
     }
 
@@ -176,7 +179,7 @@ mod tests {
         let mut rng = SmallRng::from_seed([1; 16]);
         let generated = chain.generate_in_date_range(
             &mut rng,
-            &chain.sources.iter().collect::<Vec<_>>(),
+            chain.sources.iter(),
             (
                 Datestamp {
                     year: 2018,
