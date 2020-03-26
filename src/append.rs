@@ -1,7 +1,6 @@
 use crate::{ChainEntry, ChainPrefix, ChainSuffix, Datestamp, MarkovChain, TextSource, NGRAM_CNT};
 use chrono::{Datelike, NaiveDateTime};
 use indexmap::IndexSet;
-use std::convert::TryInto;
 use std::iter::FromIterator;
 
 use vkopt_message_parser::reader::{fold_html, EventResult, MessageEvent};
@@ -23,7 +22,7 @@ impl ChainAppend for MarkovChain {
     fn append_text(&mut self, input_file: &str, source_names: Vec<String>, datestamp: Datestamp) {
         let text = std::fs::read_to_string(input_file).unwrap();
         let source = source_by_names(&mut self.sources, source_names);
-        push_text_entries(&text, datestamp, &mut source.entries, &mut self.words, true);
+        push_text_entries(&text, datestamp, &mut source.entries, &mut self.words, false);
     }
 
     fn append_message_dump(&mut self, input_file: &str) {
@@ -90,54 +89,53 @@ fn append_message(chain: &mut MarkovChain, message: ExtractedMessage) {
         message.datestamp,
         &mut source.entries,
         &mut chain.words,
-        false,
+        true,
     );
 }
 
 fn push_text_entries(
-    text: &str,
+    raw_text: &str,
     datestamp: Datestamp,
     entries: &mut Vec<ChainEntry>,
     words: &mut IndexSet<String>,
-    treat_ending_punctuation_as_terminal: bool,
+    treat_newlines_as_terminal: bool,
 ) {
-    let word_indexes = text
-        .split(&[' ', '\n'][..])
-        .filter(|word| !word.is_empty())
-        .map(|word| words.insert_full(word.to_owned()).0 as u32)
-        .collect::<Vec<_>>();
+    let text = raw_text.trim();
+
+    let mut word_indexes: Vec<(u32, bool)> = Vec::new();
+    let mut last = 0;
+    for (i, matched) in text.match_indices(|c| c == ' ' || c == '\n') {
+        if i != last {
+            let word = &text[last..i];
+            if word.is_empty() {
+                continue;
+            }
+            let terminal = treat_newlines_as_terminal && matched == "\n"
+                || word.ends_with(|c| c == '.' || c == '?' || c == '!');
+            let word_idx = words.insert_full(word.to_owned()).0 as u32;
+            word_indexes.push((word_idx, terminal));
+        }
+        last = i + matched.len();
+    }
+    if last < text.len() {
+        let word_idx = words.insert_full(text[last..].to_owned()).0 as u32;
+        word_indexes.push((word_idx, true));
+    }
 
     if word_indexes.len() < NGRAM_CNT + 1 {
         return;
     }
 
-    let last_ngram = &word_indexes[word_indexes.len() - (NGRAM_CNT + 1)..word_indexes.len()];
-
-    let mut starting = true;
+    let mut is_prefix_starting = true;
     for ngram in word_indexes.windows(NGRAM_CNT + 1) {
         let (prefix_words, suffix) = ngram.split_at(NGRAM_CNT);
-        let terminal = if treat_ending_punctuation_as_terminal {
-            words
-                .get_index(suffix[0] as usize)
-                .unwrap()
-                .ends_with(|c| c == '.' || c == '?' || c == '!')
-        } else {
-            ngram == last_ngram
-        };
+        let (suffix_idx, is_suffix_terminal) = suffix[0];
         entries.push(ChainEntry {
-            prefix: if starting {
-                ChainPrefix::starting(prefix_words.try_into().unwrap())
-            } else {
-                ChainPrefix::nonstarting(prefix_words.try_into().unwrap())
-            },
-            suffix: if terminal {
-                ChainSuffix::terminal(suffix[0])
-            } else {
-                ChainSuffix::nonterminal(suffix[0])
-            },
+            prefix: ChainPrefix::new([prefix_words[0].0, prefix_words[1].0], is_prefix_starting),
+            suffix: ChainSuffix::new(suffix_idx, is_suffix_terminal),
             datestamp,
         });
-        starting = terminal;
+        is_prefix_starting = is_suffix_terminal;
     }
 }
 
@@ -182,7 +180,7 @@ mod tests {
         assert_eq!(
             chain.sources[0].entries.last(),
             Some(&ChainEntry {
-                prefix: ChainPrefix::nonstarting([3, 4]),
+                prefix: ChainPrefix::starting([3, 4]), // newline
                 suffix: ChainSuffix::terminal(5),
                 datestamp: Datestamp {
                     year: 2018,

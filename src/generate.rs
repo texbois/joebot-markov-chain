@@ -80,15 +80,24 @@ fn generate_sequence<R: Rng>(
 ) -> Option<Vec<u32>> {
     let mut tries = 0;
     let mut generated: Vec<u32> = Vec::with_capacity(min_words as usize);
+    let starting_edges: Vec<&ChainEntry> = edges
+        .iter()
+        .filter(|e| e.prefix.is_starting())
+        .map(|e| *e)
+        .collect();
     while tries < MAX_TRIES {
-        let mut edge = edges.choose(rng).unwrap();
+        let mut edge = starting_edges
+            .choose(rng)
+            .or_else(|| edges.choose(rng))
+            .unwrap();
         loop {
             generated.extend_from_slice(&edge.prefix.word_idxs());
+            if generated.len() > max_words {
+                break;
+            }
             if generated.len() >= min_words && edge.suffix.is_terminal() {
                 generated.push(edge.suffix.word_idx());
                 return Some(generated);
-            } else if generated.len() >= max_words {
-                break;
             }
             let next_edges = edges
                 .iter()
@@ -168,8 +177,8 @@ mod tests {
         let mut chain = MarkovChain::new();
         chain.append_message_dump("tests/fixtures/messages.html");
         let mut rng = SmallRng::from_seed([1; 16]);
-        let generated = chain.generate(&mut rng, chain.sources.iter(), 3, 5);
-        assert_eq!(generated, Some("тоже пью жасминовый чай? 🤔🤔🤔".into()));
+        let generated = chain.generate(&mut rng, chain.sources.iter(), 1, 3);
+        assert_eq!(generated, Some("жасминовый чай (´･ω･`)".into()));
     }
 
     #[test]
@@ -190,9 +199,9 @@ mod tests {
                     day: 21,
                 },
             ),
-            3,
+            2,
             6,
         );
-        assert_eq!(generated, Some("Denko Пью жасминовый чай (´･ω･`)".into()));
+        assert_eq!(generated, Some("Привет Denko Пью жасминовый чай".into()));
     }
 }
