@@ -83,7 +83,7 @@ fn generate_sequence<R: Rng>(
     while tries < MAX_TRIES {
         let mut edge = edges.choose(rng).unwrap();
         loop {
-            generated.extend_from_slice(&edge.prefix);
+            generated.extend_from_slice(&edge.prefix.word_idxs());
             if generated.len() >= min_words && edge.suffix.is_terminal() {
                 generated.push(edge.suffix.word_idx());
                 return Some(generated);
@@ -92,7 +92,7 @@ fn generate_sequence<R: Rng>(
             }
             let next_edges = edges
                 .iter()
-                .filter(|e| e.prefix[0] == edge.suffix.word_idx())
+                .filter(|e| e.prefix.word_idxs()[0] == edge.suffix.word_idx())
                 .collect::<Vec<_>>();
             edge = match next_edges.choose(rng) {
                 Some(e) => e,
@@ -108,7 +108,7 @@ fn generate_sequence<R: Rng>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ChainAppend, ChainSuffix, Datestamp, TextSource};
+    use crate::{ChainAppend, ChainPrefix, ChainSuffix, Datestamp, TextSource};
     use indexmap::indexset;
     use rand::{rngs::SmallRng, SeedableRng};
 
@@ -126,7 +126,7 @@ mod tests {
             names: indexset!["дана".into()],
             entries: vec![
                 ChainEntry {
-                    prefix: [0, 1],
+                    prefix: ChainPrefix::starting([0, 1]),
                     suffix: ChainSuffix::nonterminal(2),
                     datestamp: Datestamp {
                         year: 2070,
@@ -134,7 +134,7 @@ mod tests {
                     },
                 },
                 ChainEntry {
-                    prefix: [4, 5],
+                    prefix: ChainPrefix::nonstarting([4, 5]),
                     suffix: ChainSuffix::terminal(6),
                     datestamp: Datestamp {
                         year: 2070,
@@ -146,7 +146,7 @@ mod tests {
         chain.sources.push(TextSource {
             names: indexset!["джилл".into()],
             entries: vec![ChainEntry {
-                prefix: [2, 3],
+                prefix: ChainPrefix::starting([2, 3]),
                 suffix: ChainSuffix::nonterminal(4),
                 datestamp: Datestamp {
                     year: 2070,

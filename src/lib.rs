@@ -9,12 +9,33 @@ use serde::{Deserialize, Serialize};
 
 pub const NGRAM_CNT: usize = 2; // Use a bigram markov chain model
 
-pub type ChainPrefix = [u32; NGRAM_CNT]; // indexes into MarkovChain.words
-
 #[derive(Default, Debug, Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct Datestamp {
     pub year: i16,
     pub day: u16,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct ChainPrefix([u32; NGRAM_CNT]); // indexes into MarkovChain.words
+
+impl ChainPrefix {
+    const fn starting(word_idxs: [u32; NGRAM_CNT]) -> Self {
+        let word_idx0_31 = word_idxs[0] & ((1u32 << 31) - 1);
+        Self([word_idx0_31 | 1u32 << 31, word_idxs[1]])
+    }
+
+    const fn nonstarting(word_idxs: [u32; NGRAM_CNT]) -> Self {
+        let word_idx0_31 = word_idxs[0] & ((1u32 << 31) - 1);
+        Self([word_idx0_31, word_idxs[1]])
+    }
+
+    const fn word_idxs(&self) -> [u32; NGRAM_CNT] {
+        [self.0[0] & ((1u32 << 31) - 1), self.0[1]]
+    }
+
+    const fn is_starting(&self) -> bool {
+        (self.0[0] & (1u32 << 31)) != 0
+    }
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -36,7 +57,7 @@ impl ChainSuffix {
     }
 
     const fn is_terminal(&self) -> bool {
-        (self.0 & (1u32 << 31)) > 0
+        (self.0 & (1u32 << 31)) != 0
     }
 }
 

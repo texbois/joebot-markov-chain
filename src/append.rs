@@ -1,4 +1,4 @@
-use crate::{ChainEntry, ChainSuffix, Datestamp, MarkovChain, TextSource, NGRAM_CNT};
+use crate::{ChainEntry, ChainPrefix, ChainSuffix, Datestamp, MarkovChain, TextSource, NGRAM_CNT};
 use chrono::{Datelike, NaiveDateTime};
 use indexmap::IndexSet;
 use std::convert::TryInto;
@@ -99,7 +99,7 @@ fn push_text_entries(
     datestamp: Datestamp,
     entries: &mut Vec<ChainEntry>,
     words: &mut IndexSet<String>,
-    treat_period_as_terminal: bool,
+    treat_ending_punctuation_as_terminal: bool,
 ) {
     let word_indexes = text
         .split(&[' ', '\n'][..])
@@ -113,15 +113,23 @@ fn push_text_entries(
 
     let last_ngram = &word_indexes[word_indexes.len() - (NGRAM_CNT + 1)..word_indexes.len()];
 
+    let mut starting = true;
     for ngram in word_indexes.windows(NGRAM_CNT + 1) {
         let (prefix_words, suffix) = ngram.split_at(NGRAM_CNT);
-        let terminal = if treat_period_as_terminal {
-            words.get_index(suffix[0] as usize).unwrap().ends_with('.')
+        let terminal = if treat_ending_punctuation_as_terminal {
+            words
+                .get_index(suffix[0] as usize)
+                .unwrap()
+                .ends_with(|c| c == '.' || c == '?' || c == '!')
         } else {
             ngram == last_ngram
         };
         entries.push(ChainEntry {
-            prefix: prefix_words.try_into().unwrap(),
+            prefix: if starting {
+                ChainPrefix::starting(prefix_words.try_into().unwrap())
+            } else {
+                ChainPrefix::nonstarting(prefix_words.try_into().unwrap())
+            },
             suffix: if terminal {
                 ChainSuffix::terminal(suffix[0])
             } else {
@@ -129,6 +137,7 @@ fn push_text_entries(
             },
             datestamp,
         });
+        starting = terminal;
     }
 }
 
@@ -162,7 +171,7 @@ mod tests {
         assert_eq!(
             chain.sources[0].entries[0],
             ChainEntry {
-                prefix: [0, 1],
+                prefix: ChainPrefix::starting([0, 1]),
                 suffix: ChainSuffix::nonterminal(2),
                 datestamp: Datestamp {
                     year: 2018,
@@ -173,7 +182,7 @@ mod tests {
         assert_eq!(
             chain.sources[0].entries.last(),
             Some(&ChainEntry {
-                prefix: [3, 4],
+                prefix: ChainPrefix::nonstarting([3, 4]),
                 suffix: ChainSuffix::terminal(5),
                 datestamp: Datestamp {
                     year: 2018,
@@ -221,27 +230,27 @@ mod tests {
             chain.sources[0].entries,
             vec![
                 ChainEntry {
-                    prefix: [0, 1],
+                    prefix: ChainPrefix::starting([0, 1]),
                     suffix: ChainSuffix::nonterminal(2),
                     datestamp: Datestamp { year: 0, day: 0 }
                 },
                 ChainEntry {
-                    prefix: [1, 2],
+                    prefix: ChainPrefix::nonstarting([1, 2]),
                     suffix: ChainSuffix::nonterminal(3),
                     datestamp: Datestamp { year: 0, day: 0 }
                 },
                 ChainEntry {
-                    prefix: [2, 3],
+                    prefix: ChainPrefix::nonstarting([2, 3]),
                     suffix: ChainSuffix::terminal(4),
                     datestamp: Datestamp { year: 0, day: 0 }
                 },
                 ChainEntry {
-                    prefix: [3, 4],
+                    prefix: ChainPrefix::starting([3, 4]),
                     suffix: ChainSuffix::nonterminal(5),
                     datestamp: Datestamp { year: 0, day: 0 }
                 },
                 ChainEntry {
-                    prefix: [4, 5],
+                    prefix: ChainPrefix::nonstarting([4, 5]),
                     suffix: ChainSuffix::terminal(6),
                     datestamp: Datestamp { year: 0, day: 0 }
                 }
